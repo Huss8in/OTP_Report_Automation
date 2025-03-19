@@ -11,9 +11,9 @@ load_dotenv()
 # Get date argument from command-line (optional)
 if len(sys.argv) > 1:
     try:
-        input_date = datetime.strptime(sys.argv[1], "%d/%m/%Y").strftime("%Y-%m-%d")
+        input_date = datetime.strptime(sys.argv[1], "%Y-%m-%d").strftime("%Y-%m-%d")
     except ValueError:
-        print("Invalid date format. Use DD/MM/YYYY.")
+        print("Invalid date format. Use YYYY-MM-DD.")
         sys.exit(1)
 else:
     input_date = datetime.today().strftime("%Y-%m-%d")
