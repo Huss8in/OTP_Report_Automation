@@ -1,10 +1,11 @@
 from pymongo import MongoClient
 import os
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from dotenv import load_dotenv 
+from dotenv import load_dotenv
+import sys
 
 load_dotenv()
 
@@ -27,57 +28,79 @@ sh = gc.open_by_key(SHEET_ID)
 
 # ------------ Date Setup ------------ #
 today = datetime.today()
+yesterday = today - timedelta(days=1)
+dates = [yesterday.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")]
 current_month = today.strftime("%Y-%m")
-current_date = today.strftime("%Y-%m-%d")
 
 # ------------ Worksheet Handling ------------ #
 try:
     worksheet = sh.worksheet(current_month)
 except gspread.exceptions.WorksheetNotFound:
-    try:
-        worksheet = sh.add_worksheet(title=current_month, rows="1000", cols="3")
-        worksheet.append_row(["Date", "Verified", "Unverified"])
-    except Exception as e:
-        print(f"Error creating worksheet: {e}")
-        exit()
+    worksheet = sh.add_worksheet(title=current_month, rows="1000", cols="5")
+    worksheet.append_row(["Date", "Verified", "Unverified", "Total", "Unverified %"])
 
-# ------------ MongoDB Aggregation ------------ #
-pipeline = [
-    {
-        "$match": {
-            "$expr": {
-                "$eq": [
-                    { "$dateToString": { "format": "%Y-%m-%d", "date": "$createdAt" } },
-                    current_date
-                ]
-            }
-        }
-    },
-    {
-        "$group": {
+# ------------ MongoDB Aggregation Function ------------ #
+def get_data_for_date(date_str):
+    pipeline = [
+        {"$match": {"$expr": {"$eq": [
+            {"$dateToString": {"format": "%Y-%m-%d", "date": "$createdAt"}},
+            date_str
+        ]}}},
+        {"$group": {
             "_id": None,
-            "date": { "$first": current_date },
-            "verified": { "$sum": { "$toInt": "$verified" } },
-            "unverified": { "$sum": { "$toInt": { "$not": "$verified" } } }
-        }
-    },
-    {
-        "$project": {
+            "date": {"$first": date_str},
+            "verified": {"$sum": {"$toInt": "$verified"}},
+            "unverified": {"$sum": {"$toInt": {"$not": "$verified"}}},
+        }},
+        {"$project": {
             "_id": 0,
             "date": 1,
             "verified": 1,
-            "unverified": 1
-        }
-    }
-]
+            "unverified": 1,
+            "total": {"$add": ["$verified", "$unverified"]},
+            "unverified_percentage": {
+                "$cond": {
+                    "if": {"$eq": [{"$add": ["$verified", "$unverified"]}, 0]},
+                    "then": 0,
+                    "else": {
+                        "$round": [
+                            {"$multiply": [
+                                {"$divide": ["$unverified", {"$add": ["$verified", "$unverified"]}]},
+                                100
+                            ]},
+                            2
+                        ]
+                    },
+                }
+            },
+        }}
+    ]
+    result = list(collection.aggregate(pipeline))
+    return result[0] if result else None
 
-# ------------ Append Data to Google Sheets ------------ #
-result = list(collection.aggregate(pipeline))
+# ------------ Check & Update Data in Google Sheets ------------ #
+existing_data = worksheet.get_all_values()
+date_column = [row[0] for row in existing_data]
 
-if result:
-    df = pd.DataFrame(result)
-    row = [str(df.iloc[0]["date"]), str(df.iloc[0]["verified"]), str(df.iloc[0]["unverified"])]
-    worksheet.append_row(row)
-    print(f"Data updated for {current_date}")
-else:
-    print(f"No data found for {current_date}")
+for date in dates:
+    data = get_data_for_date(date)
+    if data:
+        row = [
+            str(data["date"]),
+            str(data["verified"]),
+            str(data["unverified"]),
+            str(data["total"]),
+            str(data["unverified_percentage"]),
+        ]
+        
+        if date in date_column:
+            row_index = date_column.index(date) + 1
+            worksheet.update(range_name=f"A{row_index}:E{row_index}", values=[row])
+            print(f"Data updated for {date}: {row}")
+        else:
+            worksheet.append_row(row)
+            print(f"New data added for {date}: {row}")
+    else:
+        print(f"No data found for {date}")
+
+worksheet.format("A:E", {"horizontalAlignment": "Left"})

@@ -8,15 +8,27 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Get date argument from command-line (optional)
-if len(sys.argv) > 1:
+# Parse command-line arguments
+args = sys.argv[1:]
+
+if len(args) == 0:
+    start_date = end_date = datetime.today().strftime("%Y-%m-%d")
+elif len(args) == 1:
     try:
-        input_date = datetime.strptime(sys.argv[1], "%Y-%m-%d").strftime("%Y-%m-%d")
+        start_date = end_date = datetime.strptime(args[0], "%d-%m-%Y").strftime("%Y-%m-%d")
     except ValueError:
-        print("Invalid date format. Use YYYY-MM-DD.")
+        print("Invalid date format. Use DD-MM-YYYY.")
+        sys.exit(1)
+elif len(args) == 2:
+    try:
+        start_date = datetime.strptime(args[0], "%d-%m-%Y").strftime("%Y-%m-%d")
+        end_date = datetime.strptime(args[1], "%d-%m-%Y").strftime("%Y-%m-%d")
+    except ValueError:
+        print("Invalid date format. Use DD-MM-YYYY.")
         sys.exit(1)
 else:
-    input_date = datetime.today().strftime("%Y-%m-%d")
+    print("Usage: python export_unverified.py [DD-MM-YYYY] [DD-MM-YYYY]")
+    sys.exit(1)
 
 # MongoDB Connection
 mongo_connection_string = os.getenv("botit_mongo_connection_string")
@@ -28,22 +40,22 @@ collection = db["UserOTPs"]
 query = {
     "verified": {"$ne": True},
     "$expr": {
-        "$eq": [
-            {"$dateToString": {"format": "%Y-%m-%d", "date": "$createdAt"}},
-            input_date
+        "$and": [
+            {"$gte": [{"$dateToString": {"format": "%Y-%m-%d", "date": "$createdAt"}}, start_date]},
+            {"$lte": [{"$dateToString": {"format": "%Y-%m-%d", "date": "$createdAt"}}, end_date]}
         ]
     }
 }
 
-# Fetch Data (Retrieve all fields)
+# Fetch Data
 cursor = collection.find(query)
 
 # Convert to DataFrame and Save as CSV
 data = list(cursor)
 if data:
     df = pd.DataFrame(data)
-    filename = f"unverified_users_{input_date}.csv"
+    filename = f"unverified_users_{start_date}_to_{end_date}.csv" if start_date != end_date else f"unverified_users_{start_date}.csv"
     df.to_csv(filename, index=False)
     print(f"CSV file saved: {filename}")
 else:
-    print(f"No unverified users found for {input_date}.")
+    print(f"No unverified users found for the period {start_date} to {end_date}.")
