@@ -39,44 +39,63 @@ except gspread.exceptions.WorksheetNotFound:
     worksheet = sh.add_worksheet(title=current_month, rows="1000", cols="5")
     worksheet.append_row(["Date", "Verified", "Unverified", "Total", "Unverified %"])
 
+
 # ------------ MongoDB Aggregation Function ------------ #
 def get_data_for_date(date_str):
     pipeline = [
-        {"$match": {"$expr": {"$eq": [
-            {"$dateToString": {"format": "%Y-%m-%d", "date": "$createdAt"}},
-            date_str
-        ]}}},
-        {"$group": {
-            "_id": None,
-            "date": {"$first": date_str},
-            "verified": {"$sum": {"$toInt": "$verified"}},
-            "unverified": {"$sum": {"$toInt": {"$not": "$verified"}}},
-        }},
-        {"$project": {
-            "_id": 0,
-            "date": 1,
-            "verified": 1,
-            "unverified": 1,
-            "total": {"$add": ["$verified", "$unverified"]},
-            "unverified_percentage": {
-                "$cond": {
-                    "if": {"$eq": [{"$add": ["$verified", "$unverified"]}, 0]},
-                    "then": 0,
-                    "else": {
-                        "$round": [
-                            {"$multiply": [
-                                {"$divide": ["$unverified", {"$add": ["$verified", "$unverified"]}]},
-                                100
-                            ]},
-                            2
-                        ]
-                    },
+        {
+            "$match": {
+                "$expr": {
+                    "$eq": [
+                        {"$dateToString": {"format": "%Y-%m-%d", "date": "$createdAt"}},
+                        date_str,
+                    ]
                 }
-            },
-        }}
+            }
+        },
+        {
+            "$group": {
+                "_id": None,
+                "date": {"$first": date_str},
+                "verified": {"$sum": {"$toInt": "$verified"}},
+                "unverified": {"$sum": {"$toInt": {"$not": "$verified"}}},
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "date": 1,
+                "verified": 1,
+                "unverified": 1,
+                "total": {"$add": ["$verified", "$unverified"]},
+                "unverified_percentage": {
+                    "$cond": {
+                        "if": {"$eq": [{"$add": ["$verified", "$unverified"]}, 0]},
+                        "then": 0,
+                        "else": {
+                            "$round": [
+                                {
+                                    "$multiply": [
+                                        {
+                                            "$divide": [
+                                                "$unverified",
+                                                {"$add": ["$verified", "$unverified"]},
+                                            ]
+                                        },
+                                        100,
+                                    ]
+                                },
+                                2,
+                            ]
+                        },
+                    }
+                },
+            }
+        },
     ]
     result = list(collection.aggregate(pipeline))
     return result[0] if result else None
+
 
 # ------------ Check & Update Data in Google Sheets ------------ #
 existing_data = worksheet.get_all_values()
@@ -92,7 +111,7 @@ for date in dates:
             str(data["total"]),
             str(data["unverified_percentage"]),
         ]
-        
+
         if date in date_column:
             row_index = date_column.index(date) + 1
             worksheet.update(range_name=f"A{row_index}:E{row_index}", values=[row])

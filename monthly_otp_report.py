@@ -26,8 +26,8 @@ gc = gspread.authorize(creds)
 sh = gc.open_by_key(SHEET_ID)
 
 # ------------ Date Setup ------------ #
-start_date = datetime(2024, 12, 1)
-end_date = datetime(2025, 2, 28)
+start_date = datetime(2025, 3, 1)
+end_date = datetime(2025, 4, 6)
 
 while start_date <= end_date:
     current_month = start_date.strftime("%Y-%m")
