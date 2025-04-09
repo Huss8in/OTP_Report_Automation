@@ -54,6 +54,7 @@ cursor = collection.find(query)
 data = list(cursor)
 if data:
     df = pd.DataFrame(data)
+    df["repeated_request"] = df["count"] > 1
     filename = f"unverified_users_{start_date}_to_{end_date}.csv" if start_date != end_date else f"unverified_users_{start_date}.csv"
     df.to_csv(filename, index=False)
     print(f"CSV file saved: {filename}")
